@@ -36,45 +36,42 @@ dns_nsone_add() {
   _debug _sub_domain "$_sub_domain"
   _debug _domain "$_domain"
 
-  _debug "Getting txt records"
-  _nsone_rest GET "zones/${_domain}"
-
-  if ! _contains "$response" "\"records\":"; then
+  _debug "Getting existing txt records"
+  if ! _nsone_rest GET "zones/${_domain}/$fulldomain/TXT"; then
     _err "Error"
     return 1
   fi
 
-  count=$(printf "%s\n" "$response" | _egrep_o "\"domain\":\"$fulldomain\",[^{]*\"type\":\"TXT\"" | wc -l | tr -d " ")
-  _debug count "$count"
-  if [ "$count" = "0" ]; then
-    _info "Adding record"
-
-    if _nsone_rest PUT "zones/$_domain/$fulldomain/TXT" "{\"answers\":[{\"answer\":[\"$txtvalue\"]}],\"type\":\"TXT\",\"domain\":\"$fulldomain\",\"zone\":\"$_domain\",\"ttl\":0}"; then
-      if _contains "$response" "$fulldomain"; then
-        _info "Added"
-        #todo: check if the record takes effect
-        return 0
-      else
-        _err "Add txt record error."
-        return 1
-      fi
-    fi
-    _err "Add txt record error."
-  else
-    _info "Updating record"
-    prev_txt=$(printf "%s\n" "$response" | _egrep_o "\"domain\":\"$fulldomain\",\"short_answers\":\[\"[^,]*\]" | _head_n 1 | cut -d: -f3 | cut -d, -f1)
-    _debug "prev_txt" "$prev_txt"
-
-    _nsone_rest POST "zones/$_domain/$fulldomain/TXT" "{\"answers\": [{\"answer\": [\"$txtvalue\"]},{\"answer\": $prev_txt}],\"type\": \"TXT\",\"domain\":\"$fulldomain\",\"zone\": \"$_domain\",\"ttl\":0}"
-    if [ "$?" = "0" ] && _contains "$response" "$fulldomain"; then
-      _info "Updated!"
-      #todo: check if the record takes effect
-      return 0
-    fi
-    _err "Update error"
-    return 1
+  answers=""
+  if _contains "$response" "\"type\":\"TXT\""; then
+    _info "TXT record already exists, merging new value."
+    _nsone_get_existing_answers "$response"
+    for v in $_nsone_existing_answers; do
+      answers="$answers,{\"answer\":[\"$v\"]}"
+    done
   fi
 
+  answers="$answers,{\"answer\":[\"$txtvalue\"]}"
+  answers="${answers#,}"
+
+  if _nsone_rest PUT "zones/$_domain/$fulldomain/TXT" "{\"answers\":[$answers],\"type\":\"TXT\",\"domain\":\"$fulldomain\",\"zone\":\"$_domain\",\"ttl\":0}"; then
+    if _contains "$response" "$fulldomain"; then
+      _info "Added"
+      #todo: check if the record takes effect
+      return 0
+    else
+      _err "Add txt record error."
+      return 1
+    fi
+  fi
+  _err "Add txt record error."
+  return 1
+}
+
+_nsone_get_existing_answers() {
+  _nsone_existing_answers="$(printf "%s" "$1" | tr '}' '\n' | _egrep_o '"answer":\["[^]]*"\]' | sed 's/"answer":\["//; s/"\]$//' | tr '\n' ' ')"
+  _nsone_existing_answers="${_nsone_existing_answers# }"
+  _nsone_existing_answers="${_nsone_existing_answers% }"
 }
 
 #fulldomain
