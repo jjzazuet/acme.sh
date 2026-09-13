@@ -43,26 +43,28 @@ dns_nsone_add() {
   fi
 
   answers=""
+  _update_record=""
   if _contains "$response" "\"type\":\"TXT\""; then
     _info "TXT record already exists, merging new value."
     _nsone_get_existing_answers "$response"
     for v in $_nsone_existing_answers; do
       answers="$answers,{\"answer\":[\"$v\"]}"
     done
+    _update_record=1
   fi
 
   answers="$answers,{\"answer\":[\"$txtvalue\"]}"
   answers="${answers#,}"
 
-  if _nsone_rest PUT "zones/$_domain/$fulldomain/TXT" "{\"answers\":[$answers],\"type\":\"TXT\",\"domain\":\"$fulldomain\",\"zone\":\"$_domain\",\"ttl\":0}"; then
-    if _contains "$response" "$fulldomain"; then
-      _info "Added"
-      #todo: check if the record takes effect
-      return 0
-    else
-      _err "Add txt record error."
-      return 1
-    fi
+  if [ -n "$_update_record" ]; then
+    _nsone_rest POST "zones/$_domain/$fulldomain/TXT" "{\"answers\":[$answers],\"type\":\"TXT\",\"domain\":\"$fulldomain\",\"zone\":\"$_domain\",\"ttl\":0}"
+  else
+    _nsone_rest PUT "zones/$_domain/$fulldomain/TXT" "{\"answers\":[$answers],\"type\":\"TXT\",\"domain\":\"$fulldomain\",\"zone\":\"$_domain\",\"ttl\":0}"
+  fi
+  if [ "$?" = "0" ] && _contains "$response" "$fulldomain"; then
+    _info "Added"
+    #todo: check if the record takes effect
+    return 0
   fi
   _err "Add txt record error."
   return 1
